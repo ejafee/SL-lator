@@ -7,7 +7,7 @@ import { NormalizedLandmark, TranslationResult } from "@/types";
 interface HandLandmarksProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   canvasRef: React.RefObject<HTMLCanvasElement>;
-  onResult?: (result: TranslationResult, raw: NormalizedLandmark[]) => void;
+  onResult?: (result: TranslationResult | null, raw: NormalizedLandmark[]) => void;
 }
 
 export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksProps) {
@@ -90,8 +90,12 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
               if (bufferRef.current.length > 30) bufferRef.current.shift();
 
               const res = classifyLandmarksLocally(first);
-              onResult?.(res, first);
-              setStatus(`Detected: ${res.gloss} (${Math.round(res.confidence * 100)}%)`);
+              if (res) {
+                onResult?.(res, first);
+                setStatus(`Detected: ${res.gloss} (${Math.round(res.confidence * 100)}%)`);
+              } else {
+                setStatus("Hand detected — unrecognized");
+              }
             } else {
               setStatus("Show hand to camera");
             }

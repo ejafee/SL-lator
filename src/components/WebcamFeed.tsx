@@ -13,39 +13,23 @@ interface WebcamFeedProps {
 export function WebcamFeed({ onLog, onTranslation, paused }: WebcamFeedProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const lastHfCall = useRef<number>(0);
+  const lastTranslationTime = useRef<number>(0);
   const bufferedLandmarks = useRef<NormalizedLandmark[][]>([]);
 
-  const handleResult = useCallback(async (local: TranslationResult, raw: NormalizedLandmark[]) => {
+  const handleResult = useCallback(async (local: TranslationResult | null, raw: NormalizedLandmark[]) => {
     if (paused) return;
 
-    bufferedLandmarks.current.push(raw);
-    if (bufferedLandmarks.current.length > 16) bufferedLandmarks.current.shift();
-
-    const now = Date.now();
-    const shouldCallHf = now - lastHfCall.current > 500;
-
-    if (shouldCallHf && bufferedLandmarks.current.length >= 8) {
-      lastHfCall.current = now;
-      try {
-        const res = await fetch("/api/translate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sequence: bufferedLandmarks.current }),
-        });
-        if (res.ok) {
-          const data = (await res.json()) as TranslationResult;
-          const merged: TranslationResult = {
-            gloss: data.gloss || local.gloss,
-            confidence: data.confidence ?? local.confidence,
-            isFallback: data.isFallback,
-          };
-          onTranslation(merged);
-          onLog({ timestamp: new Date().toISOString(), ...merged, landmarks: raw });
-          return;
-        }
-      } catch {}
+    if (raw) {
+      bufferedLandmarks.current.push(raw);
+      if (bufferedLandmarks.current.length > 20) bufferedLandmarks.current.shift();
     }
+
+    if (!local) return; // Ignore ambiguous frames to prevent spam
+
+    // Debounce translation output (e.g. only accept a sign every 1.5 seconds)
+    const now = Date.now();
+    if (now - lastTranslationTime.current < 1500) return;
+    lastTranslationTime.current = now;
 
     onTranslation(local);
     onLog({ timestamp: new Date().toISOString(), ...local, landmarks: raw });
