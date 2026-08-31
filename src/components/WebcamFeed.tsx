@@ -53,8 +53,19 @@ export function WebcamFeed({ onLog, onTranslation, paused }: WebcamFeedProps) {
 
   return (
     <div className="relative w-full max-w-2xl mx-auto bg-black rounded-xl overflow-hidden aspect-[4/3]">
-      <video ref={videoRef} className="hidden" playsInline autoPlay muted />
-      <canvas ref={canvasRef} width={640} height={480} className="w-full h-full object-cover" />
+      <video
+        ref={videoRef}
+        className="absolute inset-0 w-full h-full object-cover -scale-x-100"
+        playsInline
+        autoPlay
+        muted
+      />
+      <canvas
+        ref={canvasRef}
+        width={640}
+        height={480}
+        className="absolute inset-0 w-full h-full object-cover -scale-x-100 pointer-events-none"
+      />
       <HandLandmarks videoRef={videoRef} canvasRef={canvasRef} onResult={handleResult} />
     </div>
   );

@@ -67,26 +67,23 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
         setStatus("Camera active");
       }
 
-      // Render loop to draw video + landmarks continuously
+      // Transparent canvas overlay render loop (video is displayed via native <video> tag)
       function renderLoop() {
         if (closed) return;
         const canvas = canvasRef.current;
-        const video = videoRef.current;
-        if (canvas && video && video.readyState >= 2) {
+        if (canvas) {
           const ctx = canvas.getContext("2d");
           if (ctx) {
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // Draw raw video feed
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
             if (latestResults && latestResults.multiHandLandmarks && latestResults.multiHandLandmarks.length > 0) {
               for (const landmarks of latestResults.multiHandLandmarks) {
                 drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {
                   color: "#00FF00",
-                  lineWidth: 2,
+                  lineWidth: 3,
                 });
-                drawLandmarks(ctx, landmarks, { color: "#FF0000", lineWidth: 1 });
+                drawLandmarks(ctx, landmarks, { color: "#FF0000", lineWidth: 2 });
               }
               const first = latestResults.multiHandLandmarks[0] as NormalizedLandmark[];
               bufferRef.current.push(first);
@@ -113,7 +110,7 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
       };
     }
 
-    const cleanupPromise = init();
+    init();
 
     return () => {
       closed = true;
@@ -124,7 +121,7 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
   }, [videoRef, canvasRef, onResult]);
 
   return (
-    <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-1 text-xs text-white rounded">
+    <div className="absolute bottom-2 left-2 z-10 bg-black/60 px-2 py-1 text-xs text-white rounded">
       {status}
     </div>
   );
