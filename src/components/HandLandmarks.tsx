@@ -13,14 +13,19 @@ interface HandLandmarksProps {
 export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksProps) {
   const [status, setStatus] = useState("Initializing...");
   const handsRef = useRef<any>(null);
-  const rafId = useRef<number>(0);
+  const cameraRef = useRef<any>(null);
+  const initialized = useRef(false);
   const bufferRef = useRef<NormalizedLandmark[][]>([]);
 
   useEffect(() => {
     let hands: any;
     let camera: any;
+    let closed = false;
 
     async function init() {
+      if (initialized.current) return;
+      initialized.current = true;
+
       // @ts-ignore
       const { Hands } = await import("@mediapipe/hands");
       // @ts-ignore
@@ -41,6 +46,7 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
       });
 
       hands.onResults((results: any) => {
+        if (closed) return;
         const canvas = canvasRef.current;
         const video = videoRef.current;
         if (!canvas || !video) return;
@@ -64,7 +70,6 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
           bufferRef.current.push(first);
           if (bufferRef.current.length > 30) bufferRef.current.shift();
 
-          // Lightweight local fallback classification (fast, per-frame)
           const res = classifyLandmarksLocally(first);
           onResult?.(res, first);
           setStatus(`Detected: ${res.gloss} (${Math.round(res.confidence * 100)}%)`);
@@ -75,14 +80,19 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
       });
 
       if (videoRef.current) {
-        const c = new Camera(videoRef.current, {
+        camera = new Camera(videoRef.current, {
           onFrame: async () => {
-            await hands.send({ image: videoRef.current! });
+            if (closed || !hands || !videoRef.current) return;
+            try {
+              await hands.send({ image: videoRef.current });
+            } catch (e) {
+              console.warn("MediaPipe send failed:", e);
+            }
           },
           width: 640,
           height: 480,
         });
-        camera = c;
+        cameraRef.current = camera;
         camera.start();
         setStatus("Camera active");
       }
@@ -92,11 +102,14 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
 
     init();
 
-    const currentRaf = rafId.current;
     return () => {
-      if (hands) hands.close();
-      if (camera) camera.stop?.();
-      if (currentRaf) cancelAnimationFrame(currentRaf);
+      closed = true;
+      if (camera) {
+        camera.stop?.();
+      }
+      if (hands) {
+        try { hands.close(); } catch {}
+      }
     };
   }, [videoRef, canvasRef, onResult]);
 
