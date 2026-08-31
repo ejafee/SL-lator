@@ -13,11 +13,10 @@ export default function Home() {
   const [feedback, setFeedback] = useState("");
   const textBuffer = useRef("");
   const lastInferenceAt = useRef<number>(Date.now());
+  const lastCharRef = useRef<string>("");
 
   const handleLog = useCallback(async (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
-
-    // Fire-and-forget server log write
     try {
       await fetch("/api/log", {
         method: "POST",
@@ -33,7 +32,10 @@ export default function Home() {
     if (!t.gloss || t.gloss === "...") return;
     if (t.confidence * 100 < sensitivity) return;
 
-    // Append to text buffer
+    // De-duplicate same letter fired in rapid succession
+    if (t.gloss === lastCharRef.current) return;
+    lastCharRef.current = t.gloss;
+
     if (t.gloss === "DEL") textBuffer.current = textBuffer.current.slice(0, -1);
     else if (t.gloss === "SPACE") textBuffer.current += " ";
     else textBuffer.current += t.gloss;
@@ -114,7 +116,7 @@ export default function Home() {
         <section className="space-y-4">
           <div>
             <label className="text-xs text-slate-400">Translated Output</label>
-            <div className="mt-1 min-h-[100px] p-3 rounded bg-slate-800/80 border border-slate-700 text-lg">
+            <div className="mt-1 max-h-48 min-h-[100px] overflow-y-auto p-3 rounded bg-slate-800/80 border border-slate-700 text-lg break-all whitespace-pre-wrap">
               {text || <span className="text-slate-500 text-sm">Sign a letter to begin...</span>}
             </div>
             <button onClick={() => navigator.clipboard.writeText(text)} className="mt-2 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600">Copy</button>
