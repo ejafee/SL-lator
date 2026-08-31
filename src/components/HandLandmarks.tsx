@@ -12,8 +12,6 @@ interface HandLandmarksProps {
 
 export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksProps) {
   const [status, setStatus] = useState("Initializing...");
-  const handsRef = useRef<any>(null);
-  const cameraRef = useRef<any>(null);
   const initialized = useRef(false);
   const bufferRef = useRef<NormalizedLandmark[][]>([]);
 
@@ -21,6 +19,7 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
     let hands: any;
     let camera: any;
     let closed = false;
+    let animId: number;
 
     async function init() {
       if (initialized.current) return;
@@ -41,42 +40,14 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
       hands.setOptions({
         maxNumHands: 1,
         modelComplexity: 1,
-        minDetectionConfidence: 0.6,
-        minTrackingConfidence: 0.6,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
       });
 
+      let latestResults: any = null;
+
       hands.onResults((results: any) => {
-        if (closed) return;
-        const canvas = canvasRef.current;
-        const video = videoRef.current;
-        if (!canvas || !video) return;
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        ctx.save();
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-
-        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-          for (const landmarks of results.multiHandLandmarks) {
-            drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {
-              color: "#00FF00",
-              lineWidth: 2,
-            });
-            drawLandmarks(ctx, landmarks, { color: "#FF0000", lineWidth: 1 });
-          }
-          const first = results.multiHandLandmarks[0] as NormalizedLandmark[];
-          bufferRef.current.push(first);
-          if (bufferRef.current.length > 30) bufferRef.current.shift();
-
-          const res = classifyLandmarksLocally(first);
-          onResult?.(res, first);
-          setStatus(`Detected: ${res.gloss} (${Math.round(res.confidence * 100)}%)`);
-        } else {
-          setStatus("Show hand to camera");
-        }
-        ctx.restore();
+        latestResults = results;
       });
 
       if (videoRef.current) {
@@ -86,30 +57,69 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
             try {
               await hands.send({ image: videoRef.current });
             } catch (e) {
-              console.warn("MediaPipe send failed:", e);
+              // ignore
             }
           },
           width: 640,
           height: 480,
         });
-        cameraRef.current = camera;
         camera.start();
         setStatus("Camera active");
       }
 
-      handsRef.current = hands;
+      // Render loop to draw video + landmarks continuously
+      function renderLoop() {
+        if (closed) return;
+        const canvas = canvasRef.current;
+        const video = videoRef.current;
+        if (canvas && video && video.readyState >= 2) {
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.save();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Draw raw video feed
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            if (latestResults && latestResults.multiHandLandmarks && latestResults.multiHandLandmarks.length > 0) {
+              for (const landmarks of latestResults.multiHandLandmarks) {
+                drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {
+                  color: "#00FF00",
+                  lineWidth: 2,
+                });
+                drawLandmarks(ctx, landmarks, { color: "#FF0000", lineWidth: 1 });
+              }
+              const first = latestResults.multiHandLandmarks[0] as NormalizedLandmark[];
+              bufferRef.current.push(first);
+              if (bufferRef.current.length > 30) bufferRef.current.shift();
+
+              const res = classifyLandmarksLocally(first);
+              onResult?.(res, first);
+              setStatus(`Detected: ${res.gloss} (${Math.round(res.confidence * 100)}%)`);
+            } else {
+              setStatus("Show hand to camera");
+            }
+            ctx.restore();
+          }
+        }
+        animId = requestAnimationFrame(renderLoop);
+      }
+      animId = requestAnimationFrame(renderLoop);
+
+      return () => {
+        closed = true;
+        cancelAnimationFrame(animId);
+        if (camera) camera.stop?.();
+        if (hands) try { hands.close(); } catch {}
+      };
     }
 
-    init();
+    const cleanupPromise = init();
 
     return () => {
       closed = true;
-      if (camera) {
-        camera.stop?.();
-      }
-      if (hands) {
-        try { hands.close(); } catch {}
-      }
+      if (animId) cancelAnimationFrame(animId);
+      if (camera) camera.stop?.();
+      if (hands) try { hands.close(); } catch {}
     };
   }, [videoRef, canvasRef, onResult]);
 
