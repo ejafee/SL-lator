@@ -7,24 +7,27 @@ import { NormalizedLandmark, TranslationResult } from "@/types";
 interface HandLandmarksProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   canvasRef: React.RefObject<HTMLCanvasElement>;
+  paused?: boolean;
   onResult?: (result: TranslationResult | null, raw: NormalizedLandmark[]) => void;
 }
 
-export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksProps) {
+export function HandLandmarks({ videoRef, canvasRef, paused, onResult }: HandLandmarksProps) {
   const [status, setStatus] = useState("Initializing...");
-  const initialized = useRef(false);
-  const bufferRef = useRef<NormalizedLandmark[][]>([]);
+  const latestResultsRef = useRef<any>(null);
+  const pausedRef = useRef(paused);
+  const onResultRef = useRef(onResult);
+
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+  useEffect(() => { onResultRef.current = onResult; }, [onResult]);
 
   useEffect(() => {
     let hands: any;
     let camera: any;
     let closed = false;
-    let animId: number;
+    let animId = 0;
+    let latestResults: any = null;
 
     async function init() {
-      if (initialized.current) return;
-      initialized.current = true;
-
       // @ts-ignore
       const { Hands } = await import("@mediapipe/hands");
       // @ts-ignore
@@ -44,30 +47,11 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
         minTrackingConfidence: 0.5,
       });
 
-      let latestResults: any = null;
-
       hands.onResults((results: any) => {
         latestResults = results;
+        latestResultsRef.current = results;
       });
 
-      if (videoRef.current) {
-        camera = new Camera(videoRef.current, {
-          onFrame: async () => {
-            if (closed || !hands || !videoRef.current) return;
-            try {
-              await hands.send({ image: videoRef.current });
-            } catch (e) {
-              // ignore
-            }
-          },
-          width: 640,
-          height: 480,
-        });
-        camera.start();
-        setStatus("Camera active");
-      }
-
-      // Transparent canvas overlay render loop (video is displayed via native <video> tag)
       function renderLoop() {
         if (closed) return;
         const canvas = canvasRef.current;
@@ -77,27 +61,30 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            if (latestResults && latestResults.multiHandLandmarks && latestResults.multiHandLandmarks.length > 0) {
+            if (latestResults && latestResults.multiHandLandmarks?.length) {
               for (const landmarks of latestResults.multiHandLandmarks) {
                 drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {
                   color: "#00FF00",
                   lineWidth: 3,
                 });
-                drawLandmarks(ctx, landmarks, { color: "#FF0000", lineWidth: 2 });
+                drawLandmarks(ctx, landmarks, { color: "#FF0000", lineWidth: 2, radius: 4 });
               }
-              const first = latestResults.multiHandLandmarks[0] as NormalizedLandmark[];
-              bufferRef.current.push(first);
-              if (bufferRef.current.length > 30) bufferRef.current.shift();
 
-              const res = classifyLandmarksLocally(first);
-              if (res) {
-                onResult?.(res, first);
-                setStatus(`Detected: ${res.gloss} (${Math.round(res.confidence * 100)}%)`);
+              if (!pausedRef.current) {
+                const first = latestResults.multiHandLandmarks[0] as NormalizedLandmark[];
+                const res = classifyLandmarksLocally(first);
+                if (res) {
+                  onResultRef.current?.(res, first);
+                  setStatus(`Detected: ${res.gloss} (${Math.round(res.confidence * 100)}%)`);
+                } else {
+                  setStatus("Hand detected — unrecognized");
+                }
               } else {
-                setStatus("Hand detected — unrecognized");
+                setStatus("Paused");
               }
             } else {
-              setStatus("Show hand to camera");
+              if (pausedRef.current) setStatus("Paused");
+              else setStatus("Show hand to camera");
             }
             ctx.restore();
           }
@@ -106,12 +93,21 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
       }
       animId = requestAnimationFrame(renderLoop);
 
-      return () => {
-        closed = true;
-        cancelAnimationFrame(animId);
-        if (camera) camera.stop?.();
-        if (hands) try { hands.close(); } catch {}
-      };
+      if (videoRef.current) {
+        const c = new Camera(videoRef.current, {
+          onFrame: async () => {
+            if (closed || !hands || !videoRef.current) return;
+            try {
+              await hands.send({ image: videoRef.current });
+            } catch {}
+          },
+          width: 640,
+          height: 480,
+        });
+        camera = c;
+        camera.start();
+        setStatus("Camera active");
+      }
     }
 
     init();
@@ -122,7 +118,7 @@ export function HandLandmarks({ videoRef, canvasRef, onResult }: HandLandmarksPr
       if (camera) camera.stop?.();
       if (hands) try { hands.close(); } catch {}
     };
-  }, [videoRef, canvasRef, onResult]);
+  }, [videoRef, canvasRef]);
 
   return (
     <div className="absolute bottom-2 left-2 z-10 bg-black/60 px-2 py-1 text-xs text-white rounded">

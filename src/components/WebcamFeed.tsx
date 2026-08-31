@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useCallback } from "react";
 import { HandLandmarks } from "@/components/HandLandmarks";
 import { NormalizedLandmark, TranslationResult, LogEntry } from "@/types";
 
@@ -24,9 +24,8 @@ export function WebcamFeed({ onLog, onTranslation, paused }: WebcamFeedProps) {
       if (bufferedLandmarks.current.length > 20) bufferedLandmarks.current.shift();
     }
 
-    if (!local) return; // Ignore ambiguous frames to prevent spam
+    if (!local) return;
 
-    // Debounce translation output (e.g. only accept a sign every 1.5 seconds)
     const now = Date.now();
     if (now - lastTranslationTime.current < 1500) return;
     lastTranslationTime.current = now;
@@ -50,7 +49,7 @@ export function WebcamFeed({ onLog, onTranslation, paused }: WebcamFeedProps) {
         height={480}
         className="absolute inset-0 w-full h-full object-cover -scale-x-100 pointer-events-none"
       />
-      <HandLandmarks videoRef={videoRef} canvasRef={canvasRef} onResult={handleResult} />
+      <HandLandmarks videoRef={videoRef} canvasRef={canvasRef} paused={paused} onResult={handleResult} />
     </div>
   );
 }
