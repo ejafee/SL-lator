@@ -3,36 +3,55 @@
 import { useRef, useCallback } from "react";
 import { HandLandmarks } from "@/components/HandLandmarks";
 import { NormalizedLandmark, TranslationResult, LogEntry } from "@/types";
+import { predictLocalTF } from "@/lib/local-model";
 
 interface WebcamFeedProps {
   onLog: (entry: LogEntry) => void;
   onTranslation: (t: TranslationResult) => void;
   paused?: boolean;
+  isLocalReady?: boolean;
 }
 
-export function WebcamFeed({ onLog, onTranslation, paused }: WebcamFeedProps) {
+export function WebcamFeed({ onLog, onTranslation, paused, isLocalReady }: WebcamFeedProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastTranslationTime = useRef<number>(0);
+  const lastGlossRef = useRef<string>("");
   const bufferedLandmarks = useRef<NormalizedLandmark[][]>([]);
 
-  const handleResult = useCallback(async (local: TranslationResult | null, raw: NormalizedLandmark[]) => {
-    if (paused) return;
+  const handleResult = useCallback(
+    async (local: TranslationResult | null, raw: NormalizedLandmark[]) => {
+      if (paused) return;
 
-    if (raw) {
-      bufferedLandmarks.current.push(raw);
-      if (bufferedLandmarks.current.length > 20) bufferedLandmarks.current.shift();
-    }
+      if (raw) {
+        bufferedLandmarks.current.push(raw);
+        if (bufferedLandmarks.current.length > 20) bufferedLandmarks.current.shift();
+      }
 
-    if (!local) return;
+      // Prefer Local TF.js model if ready, fallback to geometric classifier
+      let final: TranslationResult | null = null;
+      if (isLocalReady && raw) {
+        final = await predictLocalTF(raw);
+        if (!final) final = local;
+      } else {
+        final = local;
+      }
 
-    const now = Date.now();
-    if (now - lastTranslationTime.current < 1500) return;
-    lastTranslationTime.current = now;
+      if (!final) return;
+      if (final.confidence < 0.4) return; // Extra spam filter
 
-    onTranslation(local);
-    onLog({ timestamp: new Date().toISOString(), ...local, landmarks: raw });
-  }, [onLog, onTranslation, paused]);
+      const now = Date.now();
+      if (now - lastTranslationTime.current < 1500) return;
+      if (final.gloss === lastGlossRef.current) return;
+
+      lastTranslationTime.current = now;
+      lastGlossRef.current = final.gloss;
+
+      onTranslation(final);
+      onLog({ timestamp: new Date().toISOString(), ...final, landmarks: raw });
+    },
+    [onLog, onTranslation, paused, isLocalReady]
+  );
 
   return (
     <div className="relative w-full max-w-2xl mx-auto bg-black rounded-xl overflow-hidden aspect-[4/3]">

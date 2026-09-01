@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { WebcamFeed } from "@/components/WebcamFeed";
 import { LogEntry, TranslationResult } from "@/types";
+import { useLocalML } from "@/hooks/useLocalML";
 
 export default function Home() {
   const [text, setText] = useState("");
@@ -14,6 +15,8 @@ export default function Home() {
   const textBuffer = useRef("");
   const lastInferenceAt = useRef<number>(Date.now());
   const lastCharRef = useRef<string>("");
+
+  const { isReady: isLocalReady, trainingStatus, recordCorrection } = useLocalML();
 
   const handleLog = useCallback(async (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
@@ -32,7 +35,6 @@ export default function Home() {
     if (!t.gloss || t.gloss === "...") return;
     if (t.confidence * 100 < sensitivity) return;
 
-    // De-duplicate same letter fired in rapid succession
     if (t.gloss === lastCharRef.current) return;
     lastCharRef.current = t.gloss;
 
@@ -67,6 +69,10 @@ export default function Home() {
   async function submitFeedback() {
     if (!feedback.trim()) return;
     try {
+      const recent = logs[logs.length - 1];
+      if (recent && recent.landmarks) {
+        await recordCorrection(feedback.toUpperCase().trim(), recent.landmarks);
+      }
       await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -82,13 +88,27 @@ export default function Home() {
   return (
     <main className="container mx-auto px-4 py-6 max-w-5xl">
       <header className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight">SL-lator</h1>
-        <p className="text-sm text-slate-300">Real-time Sign Language Translator</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">SL-lator</h1>
+            <p className="text-sm text-slate-300">Real-time Sign Language Translator</p>
+          </div>
+          <div className="text-right">
+            <span className={`text-xs px-2 py-1 rounded ${isLocalReady ? "bg-emerald-700" : "bg-amber-700"}`}>
+              {isLocalReady ? "Local ML Ready" : trainingStatus}
+            </span>
+          </div>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <section>
-          <WebcamFeed onLog={handleLog} onTranslation={handleTranslation} paused={paused} />
+          <WebcamFeed
+            onLog={handleLog}
+            onTranslation={handleTranslation}
+            paused={paused}
+            isLocalReady={isLocalReady}
+          />
 
           <div className="mt-4 flex flex-wrap gap-2 items-center">
             <button
@@ -97,7 +117,12 @@ export default function Home() {
             >
               {paused ? "Resume" : "Pause"}
             </button>
-            <button onClick={() => { textBuffer.current = ""; setText(""); }} className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-sm">Clear Text</button>
+            <button
+              onClick={() => { textBuffer.current = ""; setText(""); }}
+              className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-sm"
+            >
+              Clear Text
+            </button>
             <label className="text-xs flex items-center gap-2 ml-auto">
               Sensitivity
               <input
@@ -119,7 +144,12 @@ export default function Home() {
             <div className="mt-1 max-h-48 min-h-[100px] overflow-y-auto p-3 rounded bg-slate-800/80 border border-slate-700 text-lg break-all whitespace-pre-wrap">
               {text || <span className="text-slate-500 text-sm">Sign a letter to begin...</span>}
             </div>
-            <button onClick={() => navigator.clipboard.writeText(text)} className="mt-2 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600">Copy</button>
+            <button
+              onClick={() => navigator.clipboard.writeText(text)}
+              className="mt-2 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600"
+            >
+              Copy
+            </button>
           </div>
 
           <div>
@@ -138,7 +168,7 @@ export default function Home() {
               <input
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
-                placeholder="What should it have said?"
+                placeholder="Correct letter for last sign"
                 className="flex-1 px-2 py-1 text-sm rounded bg-slate-800 border border-slate-700"
               />
               <button onClick={submitFeedback} className="px-3 py-1 text-xs rounded bg-indigo-700 hover:bg-indigo-600">Submit</button>

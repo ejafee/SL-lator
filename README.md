@@ -1,38 +1,54 @@
 # SL-lator — Web-Based American Sign Language (ASL) Translator
 
-SL-lator is a real-time, camera-driven ASL translator built on modern web technology. It uses MediaPipe Hands for client-side hand tracking, normalizing 21 3D landmarks into a sequence buffer that evaluates against Hugging Face inference models alongside a zero-latency geometric fallback classifier.
+SL-lator is a real-time, camera-driven ASL translator built on modern web technology. It uses **MediaPipe Hands** for client-side hand tracking, **TensorFlow.js** for local on-device ML inference, and a server fallback via **Hugging Face Inference API**.
+
+---
+
+## Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  Frontend (Next.js 14, TypeScript)                                  │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────┐│
+│  │  Webcam Feed    │──│  MediaPipe Hands │──│  TF.js Local Model  ││
+│  │  + Canvas       │  │  (BlazePalm +    │  │  + Geometric Rules  ││
+│  │  (Live video)   │  │   21 3D joints)  │  │  (Fallback <50 ms)  ││
+│  └─────────────────┘  └──────────────────┘  └─────────────────────┘│
+│                        ▲                                              │
+│                        │       Offline-First                          │
+│               ┌────────────────────┐  ┌──────────────────────────────┐│
+│               │  IndexedDB Cache   │  │   HF API Fallback (Optional)││
+│               │  - Datasets        │◄─│   /api/translate            ││
+│               │  - Corrections     │  │                              ││
+│               └────────────────────┘  └──────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────┘
+         │
+   Post-Training / Logging
+         ▼
+   ./logs/*.log (NDJSON)  ←  /api/log, /api/feedback
+```
 
 ---
 
 ## Key Features
 
-- **Real-Time Camera Capture**: Tracks hand pose at up to 30 FPS using MediaPipe Hands.
-- **Scalable Architecture**: Low bandwidth overhead by sending normalized landmark arrays instead of heavy video streams.
-- **Hugging Face Model Integration**: Connected to HF Serverless Inference API with local fallback for 100% offline uptime.
-- **Comprehensive Logging & Export**: Session logs written to server-side NDJSON file (`./logs/translations-YYYY-MM-DD.log`) + instant client downloads (`.txt`, `.json`, `.csv`).
-- **Data Flywheel / Active Learning Loop**: Built-in feedback form allowing users to submit corrections to refine future model iterations.
+- **Real-Time Camera Capture**: Tracks hand pose at up to 30 FPS using **MediaPipe Hands** (WASM/WebGL).
+- **Offline-First Local ML**: TensorFlow.js MLP classifier (`@tensorflow/tfjs`) running 100% in-browser. IndexedDB persistence; no API key needed for local mode.
+- **Scalable HF Fallback**: Optionally forwards landmark sequences to Hugging Face Inference API; geometric classifier guarantees baseline.
+- **Comprehensive Logging**: Server NDJSON logs + client TXT/JSON/CSV export.
+- **Continuous Improvement Loop**: Corrections saved in IndexedDB; periodic background retraining updates model weights.
 
 ---
 
-## Tech Stack
+## Local ML Stack
 
-- **Framework**: [Next.js 14](https://nextjs.org/) (App Router, TypeScript)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
-- **Computer Vision**: `@mediapipe/hands`, `@mediapipe/camera_utils`
-- **Model Inference**: [Hugging Face Serverless Inference API](https://huggingface.co/docs/api-inference/index)
-- **Logging**: Next.js Node.js API Routes + File System
-
----
-
-## How to Get Your Hugging Face API Token
-
-1. Go to [Hugging Face](https://huggingface.co/) and log in or create a free account.
-2. Navigate to your Profile Settings: click your avatar in top right $\rightarrow$ **Settings**.
-3. Click **Access Tokens** in the left sidebar (or visit `https://huggingface.co/settings/tokens`).
-4. Click **Create new token** / **New Token**.
-5. Set token type to **Read** (or **Fine-grained** with model inference permission).
-6. Give it a name (e.g. `SL-lator-Dev`) and click **Generate a token**.
-7. Copy the token string (`hf_...`) and paste it into your `.env.local` file as `HF_TOKEN`.
+| Layer | Tech | Notes |
+|-------|------|-------|
+| Hand Tracking | `@mediapipe/hands` | 21 normalized 3D landmarks |
+| Local Inference | `@tensorflow/tfjs` | 128→64→Softmax MLP on WebGL/WASM |
+| Storage | IndexedDB (`SL_LATOR_DB`) | Datasets + user feedback samples |
+| Pre-training | Synthetic landmark patterns | Result cached offline; replaceable with WLASL JSON |
+| Retraining | Background `tf.model.fit` | Triggers every 20 corrections |
 
 ---
 
@@ -40,53 +56,69 @@ SL-lator is a real-time, camera-driven ASL translator built on modern web techno
 
 ### Prerequisites
 
-- **Node.js**: v18.17.0 or higher
-- **npm**: v9.0.0 or higher
-- **Webcam**: Attached camera device
+- Node.js v18.17+
+- Webcam + modern browser (Chrome/Firefox recommended)
 
 ### Installation
 
-1. Clone repository:
-   ```bash
-   git clone https://github.com/ejafee/SL-lator.git
-   cd SL-lator
-   ```
+```bash
+git clone https://github.com/ejafee/SL-lator.git
+cd SL-lator
+npm install
+```
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+### Environment
 
-3. Environment Setup:
-   Create a `.env.local` file in root:
-   ```env
-   HF_TOKEN=hf_your_huggingface_access_token_here
-   HF_MODEL_ID=RavenOnur/Sign-Language
-   LOG_DIR=./logs
-   ```
+Create `.env.local`:
 
-4. Run Development Server:
-   ```bash
-   npm run dev
-   ```
-   Open [http://localhost:3000](http://localhost:3000) in browser.
+```env
+# Optional: only needed for Hugging Face remote fallback
+HF_TOKEN=hf_your_token_here
+HF_MODEL_ID=RavenOnur/Sign-Language
+LOG_DIR=./logs
+```
 
----
-
-## Production Build
+### Run
 
 ```bash
-npm run build
-npm run start
+npm run dev    # http://localhost:3000
+npm run build && npm start
 ```
 
 ---
 
-## API Routes Summary
+## How to Get a Hugging Face Access Token (Optional)
 
-- `POST /api/translate`: Proxy route sending normalized landmarks to Hugging Face Inference API.
-- `POST /api/log`: Appends session translations to server log files.
-- `POST /api/feedback`: Stores user corrections for retraining data pipeline.
+1. Create / log in at [huggingface.co](https://huggingface.co).
+2. Profile → **Settings → Access Tokens** (`https://huggingface.co/settings/tokens`).
+3. **New Token** → type **Read** → Generate → copy `hf_…` into `HF_TOKEN`.
+
+---
+
+## API Routes
+
+| Route | Purpose |
+|-------|---------|
+| `POST /api/translate` | Proxies landmark sequence to HF Inference API (fallback) |
+| `POST /api/log` | Appends translations to `logs/translations-YYYY-MM-DD.log` |
+| `POST /api/feedback` | Stores `logs/feedback-YYYY-MM-DD.log` for retraining |
+
+---
+
+## Project Layout
+
+```
+src/
+  app/
+    api/feedback  api/log  api/translate
+  components/
+    WebcamFeed  HandLandmarks
+  hooks/
+    useLocalML.ts
+  lib/
+    classifier.ts   indexeddb.ts   landmarks.ts   local-model.ts   dataset.ts
+  types/
+```
 
 ---
 
