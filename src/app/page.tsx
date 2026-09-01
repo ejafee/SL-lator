@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { WebcamFeed } from "@/components/WebcamFeed";
 import { LogEntry, TranslationResult } from "@/types";
 import { useLocalML } from "@/hooks/useLocalML";
@@ -9,6 +9,7 @@ export default function Home() {
   const [text, setText] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [paused, setPaused] = useState(false);
+  const [isMirrored, setIsMirrored] = useState(true);
   const [sensitivity, setSensitivity] = useState(70);
   const [latency, setLatency] = useState<number | null>(null);
   const [feedback, setFeedback] = useState("");
@@ -17,6 +18,19 @@ export default function Home() {
   const lastCharRef = useRef<string>("");
 
   const { isReady: isLocalReady, trainingStatus, recordCorrection } = useLocalML();
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key.toLowerCase() === "m" && !e.ctrlKey && !e.metaKey) {
+        const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+        if (tag !== "input" && tag !== "textarea") {
+          setIsMirrored((v) => !v);
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const handleLog = useCallback(async (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
@@ -108,6 +122,7 @@ export default function Home() {
             onTranslation={handleTranslation}
             paused={paused}
             isLocalReady={isLocalReady}
+            isMirrored={isMirrored}
           />
 
           <div className="mt-4 flex flex-wrap gap-2 items-center">
@@ -116,6 +131,13 @@ export default function Home() {
               className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-sm"
             >
               {paused ? "Resume" : "Pause"}
+            </button>
+            <button
+              onClick={() => setIsMirrored(m => !m)}
+              className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-sm"
+              title="Toggle mirror view (Shortcut: M)"
+            >
+              Mirror: {isMirrored ? "ON" : "OFF"}
             </button>
             <button
               onClick={() => { textBuffer.current = ""; setText(""); }}

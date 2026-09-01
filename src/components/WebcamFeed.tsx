@@ -10,9 +10,10 @@ interface WebcamFeedProps {
   onTranslation: (t: TranslationResult) => void;
   paused?: boolean;
   isLocalReady?: boolean;
+  isMirrored?: boolean;
 }
 
-export function WebcamFeed({ onLog, onTranslation, paused, isLocalReady }: WebcamFeedProps) {
+export function WebcamFeed({ onLog, onTranslation, paused, isLocalReady, isMirrored = true }: WebcamFeedProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastTranslationTime = useRef<number>(0);
@@ -57,7 +58,7 @@ export function WebcamFeed({ onLog, onTranslation, paused, isLocalReady }: Webca
     <div className="relative w-full max-w-2xl mx-auto bg-black rounded-xl overflow-hidden aspect-[4/3]">
       <video
         ref={videoRef}
-        className="absolute inset-0 w-full h-full object-cover -scale-x-100"
+        className={`absolute inset-0 w-full h-full object-cover ${isMirrored ? "-scale-x-100" : ""}`}
         playsInline
         autoPlay
         muted
@@ -66,7 +67,7 @@ export function WebcamFeed({ onLog, onTranslation, paused, isLocalReady }: Webca
         ref={canvasRef}
         width={640}
         height={480}
-        className="absolute inset-0 w-full h-full object-cover -scale-x-100 pointer-events-none"
+        className={`absolute inset-0 w-full h-full object-cover pointer-events-none ${isMirrored ? "-scale-x-100" : ""}`}
       />
       <HandLandmarks videoRef={videoRef} canvasRef={canvasRef} paused={paused} onResult={handleResult} />
     </div>
